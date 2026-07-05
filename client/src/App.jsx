@@ -16,6 +16,7 @@ export default function App() {
   const [isHost, setIsHost] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [timeLeft, setTimeLeft] = useState(15);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     socket.on("room_update", ({ players, scores }) => {
@@ -29,11 +30,10 @@ export default function App() {
       setSelected(null);
       setWaiting(false);
       setTimeLeft(15);
+      setLoading(false);
       setScreen("game");
     });
-    socket.on("timer_update", ({ timeLeft }) => {
-      setTimeLeft(timeLeft);
-    });
+    socket.on("timer_update", ({ timeLeft }) => setTimeLeft(timeLeft));
     socket.on("score_update", ({ scores, players }) => {
       setScores(scores);
       setPlayers(players);
@@ -65,6 +65,7 @@ export default function App() {
   }
 
   function handleStart() {
+    setLoading(true);
     socket.emit("start_game", { roomCode });
   }
 
@@ -79,109 +80,123 @@ export default function App() {
     return players.find(p => p.id === id)?.username || id;
   }
 
-  // Timer colour — green → yellow → red
   const timerColor = timeLeft > 10 ? "#1D9E75" : timeLeft > 5 ? "#BA7517" : "#D85A30";
+  const timerPct = (timeLeft / 15) * 100;
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  const medals = ["🥇", "🥈", "🥉"];
 
   if (screen === "lobby") return (
-    <div style={styles.center}>
-      <h1 style={styles.title}>⚡ Quiz Game</h1>
-      <input
-        style={styles.input}
-        placeholder="Your name"
-        value={username}
-        onChange={e => setUsername(e.target.value)}
-      />
-      <input
-        style={styles.input}
-        placeholder="Room code (to join)"
-        value={roomCode}
-        onChange={e => setRoomCode(e.target.value.toUpperCase())}
-        onKeyDown={e => e.key === "Enter" && handleJoin()}
-      />
-      <button style={styles.btn} onClick={handleJoin}>Join Room</button>
-      <div style={styles.divider}>or</div>
-      <button style={{...styles.btn, background:"#1D9E75"}} onClick={handleCreate}>Create Room</button>
+    <div style={s.page}>
+      <div style={s.hero}>
+        <div style={s.heroIcon}>⚡</div>
+        <h1 style={s.heroTitle}>Quiz Game</h1>
+        <p style={s.heroSub}>Real-time multiplayer trivia</p>
+      </div>
+      <div style={s.card}>
+        <p style={s.label}>Your name</p>
+        <input
+          style={s.input}
+          placeholder="Enter your name"
+          value={username}
+          onChange={e => setUsername(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && handleJoin()}
+        />
+        <p style={{...s.label, marginTop:12}}>Room code</p>
+        <input
+          style={s.input}
+          placeholder="e.g. AB12C"
+          value={roomCode}
+          onChange={e => setRoomCode(e.target.value.toUpperCase())}
+          onKeyDown={e => e.key === "Enter" && handleJoin()}
+        />
+        <button style={s.btnPrimary} onClick={handleJoin}>Join Room</button>
+        <div style={s.dividerRow}><div style={s.dividerLine}/><span style={s.dividerText}>or</span><div style={s.dividerLine}/></div>
+        <button style={s.btnGreen} onClick={handleCreate}>Create New Room</button>
+      </div>
     </div>
   );
 
   if (screen === "waiting") return (
-    <div style={styles.center}>
-      <h2 style={styles.title}>Room: <span style={{color:"#378ADD"}}>{roomCode}</span></h2>
-      <p style={{color:"#888", marginBottom:16}}>Share this code with friends</p>
-      <div style={styles.card}>
-        <p style={styles.sectionLabel}>Players in room ({players.length})</p>
-        {players.map(p => (
-          <div key={p.id} style={styles.playerRow}>
-            <span>👤 {p.username}</span>
-            {p.id === socket.id && <span style={{fontSize:11, color:"#999"}}>you</span>}
+    <div style={s.page}>
+      <div style={s.hero}>
+        <div style={s.roomCodeBadge}>{roomCode}</div>
+        <p style={s.heroSub}>Share this code with friends to join</p>
+      </div>
+      <div style={s.card}>
+        <p style={s.label}>Players ({players.length})</p>
+        {players.map((p, i) => (
+          <div key={p.id} style={s.playerRow}>
+            <span style={s.playerAvatar}>{p.username[0].toUpperCase()}</span>
+            <span style={s.playerName}>{p.username}</span>
+            {p.id === socket.id && <span style={s.youBadge}>you</span>}
+            {i === 0 && <span style={s.hostBadge}>host</span>}
           </div>
         ))}
+        {players.length < 2 && (
+          <p style={s.waitingText}>⏳ Waiting for at least one more player...</p>
+        )}
       </div>
-      {isHost
-        ? <button style={{...styles.btn, marginTop:20}} onClick={handleStart}>
-            Start Game {players.length < 2 ? "(need 1 more player)" : ""}
-          </button>
-        : <p style={{color:"#888", marginTop:16}}>Waiting for host to start...</p>
-      }
+      {isHost ? (
+        <button
+          style={{...s.btnPrimary, opacity: loading || players.length < 2 ? 0.6 : 1}}
+          onClick={handleStart}
+          disabled={loading || players.length < 2}
+        >
+          {loading ? "Loading questions..." : "Start Game"}
+        </button>
+      ) : (
+        <p style={s.waitingText}>Waiting for the host to start the game...</p>
+      )}
     </div>
   );
 
   if (screen === "game") return (
-    <div style={styles.center}>
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", width:"100%", maxWidth:420, marginBottom:8}}>
-        <p style={styles.sectionLabel}>Question {qIndex + 1} of {qTotal}</p>
-        <div style={{
-          fontSize: 22,
-          fontWeight: 600,
-          color: timerColor,
-          transition: "color 0.5s",
-          minWidth: 36,
-          textAlign: "right"
-        }}>
-          {timeLeft}s
-        </div>
+    <div style={s.page}>
+      {/* Header */}
+      <div style={s.gameHeader}>
+        <span style={s.qCounter}>Q{qIndex + 1}/{qTotal}</span>
+        <span style={{...s.timer, color: timerColor}}>{timeLeft}s</span>
       </div>
 
       {/* Timer bar */}
-      <div style={{width:"100%", maxWidth:420, height:5, background:"#E0DDD5", borderRadius:99, marginBottom:12, overflow:"hidden"}}>
-        <div style={{
-          height:"100%",
-          borderRadius:99,
-          background: timerColor,
-          width: `${(timeLeft / 15) * 100}%`,
-          transition: "width 1s linear, background 0.5s"
-        }} />
+      <div style={s.timerBarBg}>
+        <div style={{...s.timerBarFill, width:`${timerPct}%`, background: timerColor}} />
       </div>
 
-      <div style={styles.card}>
-        <h2 style={{fontSize:18, marginBottom:20}}>{question.question}</h2>
-        {question.options.map((opt, i) => (
-          <button key={i} onClick={() => handleAnswer(i)} style={{
-            ...styles.optionBtn,
-            background: selected === null ? "#F5F5F0"
-              : i === question.answer ? "#E1F5EE"
-              : selected === i ? "#FAECE7" : "#F5F5F0",
-            borderColor: selected === null ? "#E0DDD5"
-              : i === question.answer ? "#1D9E75"
-              : selected === i ? "#D85A30" : "#E0DDD5",
-            cursor: selected !== null ? "default" : "pointer",
-            opacity: selected !== null && i !== question.answer && i !== selected ? 0.5 : 1
-          }}>{opt}</button>
-        ))}
-        {waiting && (
-          <p style={{color:"#999", fontSize:13, marginTop:8, textAlign:"center"}}>
-            Waiting for other players...
-          </p>
-        )}
+      {/* Question */}
+      <div style={s.card}>
+        <p style={s.questionText}>{question.question}</p>
+        <div style={{marginTop:16}}>
+          {question.options.map((opt, i) => {
+            let bg = "#F5F5F0", border = "#E0DDD5", color = "#1A1915";
+            if (selected !== null) {
+              if (i === question.answer) { bg = "#E1F5EE"; border = "#1D9E75"; color = "#085041"; }
+              else if (i === selected) { bg = "#FAECE7"; border = "#D85A30"; color = "#993C1D"; }
+              else { bg = "#FAFAF8"; color = "#AAA"; }
+            }
+            return (
+              <button key={i} onClick={() => handleAnswer(i)} style={{
+                ...s.optionBtn, background: bg, borderColor: border, color,
+                cursor: selected !== null ? "default" : "pointer",
+                transform: selected === null ? undefined : "none"
+              }}>
+                <span style={s.optionLetter}>{["A","B","C","D"][i]}</span>
+                {opt}
+              </button>
+            );
+          })}
+        </div>
+        {waiting && <p style={s.waitingText}>Waiting for other players...</p>}
       </div>
 
-      <div style={styles.card}>
-        <p style={styles.sectionLabel}>Live scores</p>
-        {sorted.map(([id, score]) => (
-          <div key={id} style={styles.playerRow}>
-            <span>🏅 {getUsername(id)}</span>
-            <span style={{fontWeight:500}}>{score} pts</span>
+      {/* Live scores */}
+      <div style={s.card}>
+        <p style={s.label}>Live scores</p>
+        {sorted.map(([id, score], i) => (
+          <div key={id} style={s.scoreRow}>
+            <span style={s.medal}>{medals[i] || "🎮"}</span>
+            <span style={s.playerName}>{getUsername(id)}</span>
+            <span style={s.scoreVal}>{score} pts</span>
           </div>
         ))}
       </div>
@@ -189,32 +204,65 @@ export default function App() {
   );
 
   if (screen === "results") return (
-    <div style={styles.center}>
-      <h1 style={styles.title}>🏆 Game Over!</h1>
-      <div style={styles.card}>
-        <p style={styles.sectionLabel}>Final scores</p>
+    <div style={s.page}>
+      <div style={s.hero}>
+        <div style={s.heroIcon}>🏆</div>
+        <h1 style={s.heroTitle}>Game Over!</h1>
+        <p style={s.heroSub}>{getUsername(sorted[0]?.[0])} wins!</p>
+      </div>
+      <div style={s.card}>
+        <p style={s.label}>Final scores</p>
         {sorted.map(([id, score], i) => (
-          <div key={id} style={{...styles.playerRow, fontSize: i === 0 ? 18 : 14}}>
-            <span>{i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"} {getUsername(id)}</span>
-            <span style={{fontWeight:500}}>{score} pts</span>
+          <div key={id} style={{
+            ...s.scoreRow,
+            background: i === 0 ? "#FFFBEA" : "transparent",
+            borderRadius: 8,
+            padding: "10px 8px",
+            marginBottom: 4
+          }}>
+            <span style={{...s.medal, fontSize: i === 0 ? 24 : 18}}>{medals[i] || "🎮"}</span>
+            <span style={{...s.playerName, fontWeight: i === 0 ? 600 : 400, fontSize: i === 0 ? 16 : 14}}>
+              {getUsername(id)}
+            </span>
+            <span style={{...s.scoreVal, fontSize: i === 0 ? 16 : 14}}>{score} pts</span>
           </div>
         ))}
       </div>
-      <button style={{...styles.btn, marginTop:20}} onClick={() => window.location.reload()}>
-        Play Again
-      </button>
+      <button style={s.btnPrimary} onClick={() => window.location.reload()}>Play Again</button>
     </div>
   );
 }
 
-const styles = {
-  center: { minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"1rem", background:"#FAFAF8", fontFamily:"sans-serif" },
-  title: { fontSize:28, fontWeight:600, marginBottom:20 },
-  input: { width:260, padding:"10px 14px", borderRadius:8, border:"1px solid #D0CEC6", marginBottom:10, fontSize:15, outline:"none" },
-  btn: { width:260, padding:"11px 0", borderRadius:8, border:"none", background:"#378ADD", color:"#fff", fontSize:15, fontWeight:500, cursor:"pointer" },
-  divider: { color:"#AAA", margin:"10px 0" },
-  card: { background:"#fff", border:"1px solid #E0DDD5", borderRadius:12, padding:"1.25rem", width:"100%", maxWidth:420, marginBottom:12 },
-  sectionLabel: { fontSize:11, fontWeight:500, letterSpacing:"0.06em", textTransform:"uppercase", color:"#999", marginBottom:10 },
-  playerRow: { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:"1px solid #F0EDE5", fontSize:14 },
-  optionBtn: { display:"block", width:"100%", textAlign:"left", padding:"10px 14px", borderRadius:8, border:"1.5px solid", marginBottom:8, fontSize:14, transition:"all 0.2s" }
+const s = {
+  page: { minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"1rem 1rem 2rem", background:"#F7F6F2", fontFamily:"-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
+  hero: { textAlign:"center", marginBottom:20 },
+  heroIcon: { fontSize:48, marginBottom:8 },
+  heroTitle: { fontSize:32, fontWeight:700, color:"#1A1915", margin:0 },
+  heroSub: { fontSize:15, color:"#888", marginTop:6 },
+  roomCodeBadge: { fontSize:36, fontWeight:700, letterSpacing:6, color:"#378ADD", background:"#E6F1FB", padding:"10px 24px", borderRadius:12, display:"inline-block", marginBottom:10 },
+  card: { background:"#fff", border:"1px solid #E8E5DD", borderRadius:16, padding:"1.25rem 1.25rem", width:"100%", maxWidth:440, marginBottom:12, boxShadow:"0 1px 4px rgba(0,0,0,0.06)" },
+  label: { fontSize:11, fontWeight:600, letterSpacing:"0.07em", textTransform:"uppercase", color:"#999", marginBottom:8 },
+  input: { width:"100%", padding:"11px 14px", borderRadius:10, border:"1.5px solid #E0DDD5", fontSize:15, outline:"none", marginBottom:10, background:"#FAFAF8", boxSizing:"border-box" },
+  btnPrimary: { width:"100%", maxWidth:440, padding:"13px 0", borderRadius:12, border:"none", background:"#378ADD", color:"#fff", fontSize:15, fontWeight:600, cursor:"pointer", marginBottom:10 },
+  btnGreen: { width:"100%", padding:"13px 0", borderRadius:12, border:"none", background:"#1D9E75", color:"#fff", fontSize:15, fontWeight:600, cursor:"pointer" },
+  dividerRow: { display:"flex", alignItems:"center", gap:10, margin:"10px 0" },
+  dividerLine: { flex:1, height:1, background:"#E8E5DD" },
+  dividerText: { fontSize:13, color:"#BBB" },
+  playerRow: { display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:"1px solid #F0EDE5" },
+  playerAvatar: { width:32, height:32, borderRadius:"50%", background:"#E6F1FB", color:"#378ADD", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:600, fontSize:14, flexShrink:0 },
+  playerName: { flex:1, fontSize:14, color:"#1A1915" },
+  youBadge: { fontSize:11, padding:"2px 8px", borderRadius:20, background:"#E6F1FB", color:"#378ADD", fontWeight:500 },
+  hostBadge: { fontSize:11, padding:"2px 8px", borderRadius:20, background:"#EEEDFE", color:"#3C3489", fontWeight:500 },
+  waitingText: { fontSize:13, color:"#999", textAlign:"center", marginTop:12, padding:"8px 0" },
+  gameHeader: { display:"flex", justifyContent:"space-between", alignItems:"center", width:"100%", maxWidth:440, marginBottom:8 },
+  qCounter: { fontSize:13, fontWeight:600, color:"#888", letterSpacing:"0.04em" },
+  timer: { fontSize:24, fontWeight:700, transition:"color 0.5s", minWidth:48, textAlign:"right" },
+  timerBarBg: { width:"100%", maxWidth:440, height:6, background:"#E8E5DD", borderRadius:99, marginBottom:14, overflow:"hidden" },
+  timerBarFill: { height:"100%", borderRadius:99, transition:"width 1s linear, background 0.5s" },
+  questionText: { fontSize:17, fontWeight:500, color:"#1A1915", lineHeight:1.5 },
+  optionBtn: { display:"flex", alignItems:"center", gap:12, width:"100%", textAlign:"left", padding:"11px 14px", borderRadius:10, border:"1.5px solid", marginBottom:8, fontSize:14, transition:"all 0.2s", background:"#F5F5F0" },
+  optionLetter: { width:24, height:24, borderRadius:"50%", background:"rgba(0,0,0,0.06)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:600, flexShrink:0 },
+  scoreRow: { display:"flex", alignItems:"center", gap:10, padding:"6px 0", borderBottom:"1px solid #F0EDE5" },
+  medal: { fontSize:18, flexShrink:0 },
+  scoreVal: { fontWeight:600, color:"#1A1915", marginLeft:"auto" },
 };
