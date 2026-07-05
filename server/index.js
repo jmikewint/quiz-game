@@ -65,12 +65,15 @@ async function fetchQuestions(categoryId) {
 function startQuestionTimer(roomCode) {
   const room = rooms[roomCode];
   if (!room) return;
-  let timeLeft = QUESTION_TIME;
-  io.to(roomCode).emit("timer_update", { timeLeft });
+
+  room.timeLeft = QUESTION_TIME;
+  io.to(roomCode).emit("timer_update", { timeLeft: room.timeLeft });
+
   room.timer = setInterval(() => {
-    timeLeft--;
-    io.to(roomCode).emit("timer_update", { timeLeft });
-    if (timeLeft <= 0) {
+    room.timeLeft--;
+    io.to(roomCode).emit("timer_update", { timeLeft: room.timeLeft });
+
+    if (room.timeLeft <= 0) {
       clearInterval(room.timer);
       advanceQuestion(roomCode);
     }
@@ -176,13 +179,18 @@ io.on("connection", (socket) => {
   });
 
   // Power-up: extra time — add 10s to the timer for everyone
-  socket.on("powerup_time", ({ roomCode }) => {
-    const room = rooms[roomCode];
-    if (!room || !room.powerups[socket.id]?.extraTime) return;
-    room.powerups[socket.id].extraTime = 0;
-    io.to(roomCode).emit("powerup_time_result", { addSeconds: 10, usedBy: socket.id });
-    io.to(roomCode).emit("room_update", { players: room.players, scores: room.scores, powerups: room.powerups });
-  });
+socket.on("powerup_time", ({ roomCode }) => {
+  const room = rooms[roomCode];
+  if (!room || !room.powerups[socket.id]?.extraTime) return;
+  room.powerups[socket.id].extraTime = 0;
+
+  // Add time directly to the server's tracked timer
+  room.timeLeft = Math.min(room.timeLeft + 10, 60);
+
+  io.to(roomCode).emit("powerup_time_result", { addSeconds: 10, usedBy: socket.id });
+  io.to(roomCode).emit("timer_update", { timeLeft: room.timeLeft });
+  io.to(roomCode).emit("room_update", { players: room.players, scores: room.scores, powerups: room.powerups });
+});
 
   // Power-up: steal — take 50 pts from the leader
   socket.on("powerup_steal", ({ roomCode }) => {
