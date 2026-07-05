@@ -19,7 +19,41 @@ const questions = [
   { question: "Which company created React?", options: ["Google", "Microsoft", "Meta", "Apple"], answer: 2 },
 ];
 
+const QUESTION_TIME = 15; // seconds per question
 const rooms = {};
+
+function startQuestionTimer(roomCode) {
+  const room = rooms[roomCode];
+  if (!room) return;
+
+  let timeLeft = QUESTION_TIME;
+  io.to(roomCode).emit("timer_update", { timeLeft });
+
+  room.timer = setInterval(() => {
+    timeLeft--;
+    io.to(roomCode).emit("timer_update", { timeLeft });
+
+    if (timeLeft <= 0) {
+      clearInterval(room.timer);
+      // Auto advance when time runs out
+      room.currentQ++;
+      room.answers = {};
+
+      if (room.currentQ < questions.length) {
+        setTimeout(() => {
+          io.to(roomCode).emit("next_question", {
+            question: questions[room.currentQ],
+            index: room.currentQ,
+            total: questions.length
+          });
+          startQuestionTimer(roomCode);
+        }, 1500);
+      } else {
+        io.to(roomCode).emit("game_over", { scores: room.scores, players: room.players });
+      }
+    }
+  }, 1000);
+}
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
@@ -29,13 +63,11 @@ io.on("connection", (socket) => {
       rooms[roomCode] = { players: [], currentQ: 0, started: false, scores: {}, answers: {} };
     }
     const room = rooms[roomCode];
-
     const existing = room.players.find(p => p.id === socket.id);
     if (!existing) {
       room.players.push({ id: socket.id, username });
       room.scores[socket.id] = 0;
     }
-
     socket.join(roomCode);
     io.to(roomCode).emit("room_update", { players: room.players, scores: room.scores });
     console.log(`${username} joined room ${roomCode}`);
@@ -52,25 +84,27 @@ io.on("connection", (socket) => {
       index: 0,
       total: questions.length
     });
+    startQuestionTimer(roomCode);
   });
 
   socket.on("submit_answer", ({ roomCode, answerIndex }) => {
     const room = rooms[roomCode];
     if (!room) return;
 
-    // Record this player's answer
     room.answers[socket.id] = answerIndex;
-
     const correct = questions[room.currentQ].answer;
-    if (answerIndex === correct) room.scores[socket.id] += 100;
+    if (answerIndex === correct) {
+      // Bonus points for answering faster
+      room.scores[socket.id] += 100;
+    }
 
     io.to(roomCode).emit("score_update", { scores: room.scores, players: room.players });
 
-    // Only advance when all players have answered
     const totalPlayers = room.players.length;
     const totalAnswers = Object.keys(room.answers).length;
 
     if (totalAnswers >= totalPlayers) {
+      clearInterval(room.timer);
       room.currentQ++;
       room.answers = {};
 
@@ -81,6 +115,7 @@ io.on("connection", (socket) => {
             index: room.currentQ,
             total: questions.length
           });
+          startQuestionTimer(roomCode);
         }, 1500);
       } else {
         io.to(roomCode).emit("game_over", { scores: room.scores, players: room.players });
@@ -90,12 +125,12 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
-    // Clean up player from any room they were in
     for (const roomCode in rooms) {
       const room = rooms[roomCode];
       room.players = room.players.filter(p => p.id !== socket.id);
       delete room.scores[socket.id];
       if (room.players.length === 0) {
+        clearInterval(room.timer);
         delete rooms[roomCode];
       } else {
         io.to(roomCode).emit("room_update", { players: room.players, scores: room.scores });

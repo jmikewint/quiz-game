@@ -15,33 +15,34 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [isHost, setIsHost] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(15);
 
   useEffect(() => {
     socket.on("room_update", ({ players, scores }) => {
       setPlayers(players);
       setScores(scores);
     });
-
     socket.on("next_question", ({ question, index, total }) => {
       setQuestion(question);
       setQIndex(index);
       setQTotal(total);
       setSelected(null);
       setWaiting(false);
+      setTimeLeft(15);
       setScreen("game");
     });
-
+    socket.on("timer_update", ({ timeLeft }) => {
+      setTimeLeft(timeLeft);
+    });
     socket.on("score_update", ({ scores, players }) => {
       setScores(scores);
       setPlayers(players);
     });
-
     socket.on("game_over", ({ scores, players }) => {
       setScores(scores);
       setPlayers(players);
       setScreen("results");
     });
-
     return () => socket.removeAllListeners();
   }, []);
 
@@ -78,6 +79,8 @@ export default function App() {
     return players.find(p => p.id === id)?.username || id;
   }
 
+  // Timer colour — green → yellow → red
+  const timerColor = timeLeft > 10 ? "#1D9E75" : timeLeft > 5 ? "#BA7517" : "#D85A30";
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
 
   if (screen === "lobby") return (
@@ -117,7 +120,7 @@ export default function App() {
       </div>
       {isHost
         ? <button style={{...styles.btn, marginTop:20}} onClick={handleStart}>
-            Start Game {players.length > 1 ? "" : "(need 1 more player)"}
+            Start Game {players.length < 2 ? "(need 1 more player)" : ""}
           </button>
         : <p style={{color:"#888", marginTop:16}}>Waiting for host to start...</p>
       }
@@ -126,7 +129,31 @@ export default function App() {
 
   if (screen === "game") return (
     <div style={styles.center}>
-      <p style={styles.sectionLabel}>Question {qIndex + 1} of {qTotal}</p>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", width:"100%", maxWidth:420, marginBottom:8}}>
+        <p style={styles.sectionLabel}>Question {qIndex + 1} of {qTotal}</p>
+        <div style={{
+          fontSize: 22,
+          fontWeight: 600,
+          color: timerColor,
+          transition: "color 0.5s",
+          minWidth: 36,
+          textAlign: "right"
+        }}>
+          {timeLeft}s
+        </div>
+      </div>
+
+      {/* Timer bar */}
+      <div style={{width:"100%", maxWidth:420, height:5, background:"#E0DDD5", borderRadius:99, marginBottom:12, overflow:"hidden"}}>
+        <div style={{
+          height:"100%",
+          borderRadius:99,
+          background: timerColor,
+          width: `${(timeLeft / 15) * 100}%`,
+          transition: "width 1s linear, background 0.5s"
+        }} />
+      </div>
+
       <div style={styles.card}>
         <h2 style={{fontSize:18, marginBottom:20}}>{question.question}</h2>
         {question.options.map((opt, i) => (
@@ -142,8 +169,13 @@ export default function App() {
             opacity: selected !== null && i !== question.answer && i !== selected ? 0.5 : 1
           }}>{opt}</button>
         ))}
-        {waiting && <p style={{color:"#999", fontSize:13, marginTop:8, textAlign:"center"}}>Waiting for other players...</p>}
+        {waiting && (
+          <p style={{color:"#999", fontSize:13, marginTop:8, textAlign:"center"}}>
+            Waiting for other players...
+          </p>
+        )}
       </div>
+
       <div style={styles.card}>
         <p style={styles.sectionLabel}>Live scores</p>
         {sorted.map(([id, score]) => (
@@ -168,7 +200,9 @@ export default function App() {
           </div>
         ))}
       </div>
-      <button style={{...styles.btn, marginTop:20}} onClick={() => window.location.reload()}>Play Again</button>
+      <button style={{...styles.btn, marginTop:20}} onClick={() => window.location.reload()}>
+        Play Again
+      </button>
     </div>
   );
 }
